@@ -20,7 +20,11 @@ dsh plugin --profile desktop add github:GTilor/dsh-session-delete#v1.0.2
 
 You can also download the installer and enter its local path in **Add plugin**. [Download the v1.0.2 installer](https://github.com/GTilor/dsh-session-delete/releases/download/v1.0.2/dsh-session-delete-lite-1.0.2.tgz)
 
-![Confirming a session from the sidebar, retrying after a connection failure, and seeing the Session deleted notification](docs/delete-session-demo.gif)
+## Demo
+
+The demo deletes the open **Reading Notes** session from its sidebar menu. After confirmation, **Next Week** stays in the list and Harness opens a new session in the same workspace.
+
+![Deleting Reading Notes from the sidebar and seeing Next Week remain](docs/delete-session-demo.en.gif)
 
 ## What it does
 

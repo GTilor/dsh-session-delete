@@ -20,7 +20,11 @@ dsh plugin --profile desktop add github:GTilor/dsh-session-delete#v1.0.2
 
 你也可以下载安装包，在 **添加插件** 里填入文件的本地路径。[下载 v1.0.2 安装包](https://github.com/GTilor/dsh-session-delete/releases/download/v1.0.2/dsh-session-delete-lite-1.0.2.tgz)
 
-![从侧栏确认要删除的会话，连接失败后重试，直到出现「会话已删除」](docs/delete-session-demo.gif)
+## 使用演示
+
+从侧栏的 **⋯ → 删除会话** 确认删除正在查看的「周末阅读笔记」。删除成功后，侧栏里还能看到「下周安排」，界面回到同一工作区的新会话。
+
+![从侧栏删除周末阅读笔记，出现会话已删除提示，下周安排仍在列表中](docs/delete-session-demo.gif)
 
 ## 功能
 
