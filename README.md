@@ -8,7 +8,9 @@ DeepSeek Harness ships archive, pin, rename and fork for sidebar sessions — bu
 - Greys the row out while the session is running or waiting on you.
 - Asks for confirmation once, then really deletes.
 
-Deletion removes the session's directory under `~/.dsh/sessions/`, its workspace-list entry, its projection-cache record and its spilled tool results. **It cannot be undone** — archive only tucks a session away; this really deletes.
+Deletion removes the JSONL directory DSH identifies for the session, its workspace-list entry, its projection cache and its spilled tool results. Both default and custom directories are supported. The plugin checks with DSH that the record is gone before reporting success. **Deletion is permanent.**
+
+SQLite stores multiple sessions in a shared database. For those sessions, the dialog explains the storage limitation and preserves both the history and the sidebar entry.
 
 When you delete the session on screen, the view moves to a fresh session in the same workspace. If cleanup is incomplete, the dialog tells you and stays open so you can retry.
 
@@ -30,7 +32,9 @@ dsh plugin --profile desktop remove dsh-session-delete-lite
 
 `index.js` handles `POST /_dsh-session-delete/delete`. `client.js` renders the menu row and the confirm dialog through DSH's `sidebar.workspaces.session.menu.item` and `shell.overlay` slots.
 
-For a loaded session, the plugin uses DSH's teardown before calling the workspace registry and cleaning up files. If the session stays loaded, the dialog asks you to restart DSH and retry.
+When you confirm, the plugin checks for activity reported by DSH. If a host Agent still holds the session, the dialog asks you to restart DSH and retry. Otherwise, the plugin uses DSH's session teardown before updating the workspace registry and cleaning up files.
+
+Run `npm test` in the project directory to run the regression tests with temporary sessions.
 
 ## Requirements
 

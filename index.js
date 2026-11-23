@@ -6,7 +6,7 @@
  */
 
 import { homedir, tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { rm, readdir } from 'node:fs/promises'
 import { appendFileSync, mkdirSync } from 'node:fs'
@@ -19,7 +19,6 @@ const dshHome = () => {
   const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir()
   return process.env.DSH_HOME ?? join(home, '.dsh')
 }
-const sessionsRoot = () => join(dshHome(), 'sessions')
 const projcacheSessionsDir = () => join(dshHome(), 'storages', 'session_projcache', 'sessions')
 const opLogPath = () => join(dshHome(), 'logs', 'session-delete-lite.log')
 const spillBase = () => process.env.DSH_SESSION_DELETE_TMP ?? tmpdir()
@@ -39,24 +38,44 @@ function opLog(line) {
 }
 
 export const name = 'session-delete-lite'
-export const inject = ['webServer', 'connection', 'agents', 'sessions', 'storageDomain', 'workspaceRegistry']
+export const inject = ['webServer', 'connection', 'agents', 'sessions', 'sessionPersistence', 'storageDomain', 'workspaceRegistry']
 
 /** 宿主在真正删除前再查一次活动状态。 */
-function busyReason(agents, sessionId) {
+function assertIdle(agents, sessionId, activity = []) {
   const agent = agents.get(sessionId)
   const snapshot = agent?.session?.getSnapshot?.() ?? agent?.getSnapshot?.()
-  if (snapshot?.running === true) return 'running'
-  if (snapshot?.pendingInteraction != null) return 'pending-interaction'
+  if (activity.length > 0 || agent?.status === 'running' ||
+      snapshot?.running === true || snapshot?.pendingInteraction != null) {
+    opLog(`会话正忙 ${sessionId}`)
+    throw Object.assign(new Error('会话仍有进行中的工作，无法删除'), { statusCode: 409 })
+  }
+}
+
+/** 只接受宿主为目标会话定位到的独立 JSONL 目录。SQLite 的记录没有这样的路径。 */
+function jsonlSessionDir(stored, sessionId) {
+  const location = stored?.location
+  if (stored?.header?.id !== sessionId || location?.kind !== 'jsonl' ||
+      typeof location.path !== 'string' || !isAbsolute(location.path)) return
+  const directory = dirname(resolve(location.path))
+  if (basename(directory) === sessionId) return directory
 }
 
 /** 走 DSH 自己的拆解路径，让宿主发出会话移除事件。 */
-function unloadLiveSession(sessions, sessionId) {
+function unloadLiveSession(ctx, sessionId, expected) {
+  // Agent 的销毁句柄归创建者持有。单独摘掉 Session 会让 Agent 继续持有原对话。
+  if (ctx.agents.get(sessionId)?.session != null) return false
+  const sessions = ctx.sessions
   const session = sessions.get(sessionId)
   if (session == null) return true
+  if (session !== expected) return false
   const entry = sessions.liveEntryFor?.(session)
   if (entry == null || typeof sessions.detachEntered !== 'function') return false
   sessions.detachEntered(entry)
   return sessions.get(sessionId) == null
+}
+
+function stillLoaded(ctx, sessionId) {
+  return ctx.sessions.get(sessionId) != null || ctx.agents.get(sessionId)?.session != null
 }
 
 async function forgetInRegistry(registry, sessionId) {
@@ -117,13 +136,34 @@ async function eraseProjcache(storageDomain, sessionId) {
   return complete
 }
 
-async function erasePayload(storageDomain, sessionId) {
+async function eraseHistory(persistence, sessionId, directory) {
+  if (directory !== undefined) {
+    return cleanupStep(`会话目录删除失败 ${directory}`, () => rm(directory, { recursive: true, force: true }))
+  }
+  // 重试时日志可能已经删掉。只在此 JSONL 后端配置的根目录里查找残余文件。
+  const configured = persistence.config?.root
+  if (typeof configured !== 'string' || configured.length === 0) return true
+  // 相对路径在 DSH 启动时已经解析过，进程的当前目录此后可能改变。
+  const root = isAbsolute(configured) ? configured : persistence.root
+  if (typeof root !== 'string' || !isAbsolute(root)) {
+    opLog(`无法定位会话残余目录 ${sessionId}`)
+    return false
+  }
+  return eraseSessionDirs(root, sessionId)
+}
+
+async function erasePayload(ctx, sessionId, directory) {
   const results = await Promise.all([
-    eraseSessionDirs(sessionsRoot(), sessionId),
-    eraseProjcache(storageDomain, sessionId),
+    eraseHistory(ctx.sessionPersistence, sessionId, directory),
+    eraseProjcache(ctx.storageDomain, sessionId),
     eraseSessionDirs(spillBase(), spillSessionDirName(sessionId), SPILL_ROOT_RE),
   ])
-  return results.every(Boolean)
+  if (!results.every(Boolean)) return false
+  return cleanupStep(`删除后复查失败 ${sessionId}`, async () => {
+    if (await ctx.sessionPersistence.stat(sessionId) != null || stillLoaded(ctx, sessionId)) {
+      throw new Error('宿主仍能读取会话')
+    }
+  })
 }
 
 /** 读一个 JSON 请求体；空体当 {}。 */
@@ -165,21 +205,31 @@ export function apply(ctx) {
         if (deleting.has(sessionId)) {
           return sendJson(res, 409, { ok: false, error: '会话正在删除，请稍后重试' })
         }
-        const busy = busyReason(ctx.agents, sessionId)
-        if (busy) {
-          opLog(`会话正忙 ${sessionId} (${busy})`)
-          return sendJson(res, 409, { ok: false, error: '会话仍有进行中的工作，无法删除' })
-        }
-
         deleting.add(sessionId)
         try {
-          if (!unloadLiveSession(ctx.sessions, sessionId)) {
+          assertIdle(ctx.agents, sessionId)
+          const live = ctx.sessions.get(sessionId)
+          // 新会话可能还没有文件。先让这条会话的缓冲记录落盘，再问宿主要位置。
+          if (live != null) await ctx.sessions.flush(live)
+          const stored = await ctx.sessionPersistence.stat(sessionId)
+          const directory = jsonlSessionDir(stored, sessionId)
+          if (stored != null && directory === undefined) {
+            return sendJson(res, 409, {
+              ok: false,
+              code: 'unsupported-storage',
+              error: '此会话没有可单独删除的 JSONL 文件。SQLite 等共享存储暂不支持删除。',
+            })
+          }
+          const activity = await ctx.waterfall('workspace/session-activity', { sessionId }, () => Promise.resolve([]))
+          assertIdle(ctx.agents, sessionId, activity)
+          if (!unloadLiveSession(ctx, sessionId, live)) {
             opLog(`会话卸载失败 ${sessionId}`)
             return sendJson(res, 409, { ok: false, error: '会话仍留在内存里，请重启 DSH 后重试' })
           }
           const registryClean = await cleanupStep(`清理工作区登记失败 ${sessionId}`, () =>
             forgetInRegistry(ctx.workspaceRegistry, sessionId))
-          const complete = registryClean && await erasePayload(ctx.storageDomain, sessionId)
+          const complete = registryClean && !stillLoaded(ctx, sessionId) &&
+            await erasePayload(ctx, sessionId, directory)
           opLog(`${complete ? '已删除' : '未完整删除'} ${sessionId}`)
           if (!complete) return sendJson(res, 207, { ok: false, partial: true })
           sendJson(res, 200, { ok: true })

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "为 DeepSeek Harness 侧栏会话补上「删除会话」：二次确认后真删，运行中置灰。Adds the missing per-session Delete action to the DSH sidebar.",
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "license": "MIT",
   "author": {
     "name": "lvguo"

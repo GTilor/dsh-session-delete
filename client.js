@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
         deleting: '删除中…',
         done: '已删除',
         partial: '会话未完整删除，可能还有记录或文件。可以重试。',
+        unsupportedStorage: '此会话没有可单独删除的 JSONL 文件。SQLite 等共享存储暂不支持删除。',
         failed: '删除失败：{message}',
       },
       en: {
@@ -38,6 +39,7 @@ window.__ModuleLoader__.load({
         deleting: 'Deleting…',
         done: 'Session deleted',
         partial: 'Session deletion is incomplete. Some records or files may remain. You can retry.',
+        unsupportedStorage: 'This session has no separate JSONL file. Deletion from shared storage such as SQLite is currently unavailable.',
         failed: 'Delete failed: {message}',
       },
     }
@@ -206,6 +208,7 @@ window.__ModuleLoader__.load({
           const payload = await response.json().catch(() => ({}))
           const partial = payload?.partial === true
           if (!response.ok || (payload?.ok !== true && !partial)) {
+            if (payload?.code === 'unsupported-storage') throw new Error(t('unsupportedStorage'))
             throw new Error(payload?.error ?? `HTTP ${response.status}`)
           }
           // 冷会话删除不会产生卸载事件，所以主动重拉一次列表基线。
