@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Delete session",
+    "description": "Adds a Delete session row to every session's ⋯ menu in the sidebar. It asks for confirmation, then really deletes the transcript and its local data; the row greys out while the session is running. Deletion removes the session directory on disk, its list entry and its projection cache, and cannot be undone."
+  }
+}
