@@ -10,7 +10,7 @@ DeepSeek Harness ships archive, pin, rename and fork for sidebar sessions — bu
 
 Deletion removes the session's directory under `~/.dsh/sessions/`, its workspace-list entry, its projection-cache record and its spilled tool results. **It cannot be undone** — archive only tucks a session away; this really deletes.
 
-If the session you delete is the one on screen, the view moves to a fresh session in the same workspace. If a full removal is not possible, the row is hidden instead and you are told so.
+When you delete the session on screen, the view moves to a fresh session in the same workspace. If cleanup is incomplete, the dialog tells you and stays open so you can retry.
 
 ## Install
 
@@ -28,13 +28,13 @@ dsh plugin --profile desktop remove dsh-session-delete-lite
 
 ## How it works
 
-`index.js` registers two private routes (`/_dsh-session-delete/status`, `/_dsh-session-delete/delete`) and does the work. `client.js` renders the menu row and the confirm dialog through DSH's own slots (`sidebar.workspaces.session.menu.item`, `shell.overlay`) and touches nothing else.
+`index.js` handles `POST /_dsh-session-delete/delete`. `client.js` renders the menu row and the confirm dialog through DSH's `sidebar.workspaces.session.menu.item` and `shell.overlay` slots.
 
-Deleting a session that is still loaded needs an unload, and DSH has no documented API for it; the plugin uses the framework's own teardown and probes every step. When the probe fails it hides the row and says so instead of claiming a clean delete.
+For a loaded session, the plugin uses DSH's teardown before calling the workspace registry and cleaning up files. If the session stays loaded, the dialog asks you to restart DSH and retry.
 
 ## Requirements
 
-DeepSeek Harness `^0.2.3-alpha.2`. Desktop and `dsh web` share the same Web-side APIs; only the desktop build is tested.
+DeepSeek Harness `^0.2.3-alpha.2`. Desktop and `dsh web` share the same Web-side APIs. The delete route has been tested with the `dsh web` host.
 
 ## License
 

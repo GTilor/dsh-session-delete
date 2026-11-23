@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
         cancel: '取消',
         deleting: '删除中…',
         done: '已删除',
-        doneLive: '已删除；列表里暂时还留着，重启 DSH 后消失',
+        partial: '会话未完整删除，可能还有记录或文件。可以重试。',
         failed: '删除失败：{message}',
       },
       en: {
@@ -37,7 +37,7 @@ window.__ModuleLoader__.load({
         cancel: 'Cancel',
         deleting: 'Deleting…',
         done: 'Session deleted',
-        doneLive: 'Deleted; the row stays until you restart DSH',
+        partial: 'Session deletion is incomplete. Some records or files may remain. You can retry.',
         failed: 'Delete failed: {message}',
       },
     }
@@ -167,7 +167,7 @@ window.__ModuleLoader__.load({
     function DeleteOverlay({ t, ctx }) {
       const request = usePending()
       const [deleting, setDeleting] = React.useState(false)
-      const [error, setError] = React.useState(null)
+      const [warning, setWarning] = React.useState(null)
       const [toast, setToast] = React.useState(null)
 
       React.useEffect(() => {
@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
       }, [toast])
 
       React.useEffect(() => {
-        setError(null)
+        setWarning(null)
         setDeleting(false)
       }, [request?.sessionId])
 
@@ -193,11 +193,9 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const callDelete = async (sessionId) => {
+      const callDelete = async ({ sessionId, wasOpen, workspaceId }) => {
         setDeleting(true)
-        setError(null)
-        const wasOpen = pending?.wasOpen === true
-        const workspaceId = pending?.workspaceId
+        setWarning(null)
         try {
           const response = await fetch('/_dsh-session-delete/delete', {
             method: 'POST',
@@ -206,12 +204,10 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({ sessionId }),
           })
           const payload = await response.json().catch(() => ({}))
-          if (!response.ok || payload?.ok !== true) {
+          const partial = payload?.partial === true
+          if (!response.ok || (payload?.ok !== true && !partial)) {
             throw new Error(payload?.error ?? `HTTP ${response.status}`)
           }
-          const stillLive = payload?.live === true
-          setToast(stillLive ? t('doneLive') : t('done'))
-          settle()
           // 冷会话删除不会产生卸载事件，所以主动重拉一次列表基线。
           try {
             const refreshed = ctx?.get?.('sessions')?.refresh?.()
@@ -219,9 +215,15 @@ window.__ModuleLoader__.load({
           } catch {
             /* 刷新同样是顺手的事 */
           }
-          if (wasOpen && !stillLive) window.setTimeout(() => leaveDeletedConversation(workspaceId), 0)
+          if (partial) {
+            setWarning(t('partial'))
+            return
+          }
+          setToast(t('done'))
+          settle()
+          if (wasOpen) window.setTimeout(() => leaveDeletedConversation(workspaceId), 0)
         } catch (reason) {
-          setError(reason instanceof Error ? reason.message : String(reason))
+          setWarning(t('failed', { message: reason instanceof Error ? reason.message : String(reason) }))
         } finally {
           setDeleting(false)
         }
@@ -233,7 +235,7 @@ window.__ModuleLoader__.load({
             h('h2', { className: 'dsh-sd-title' }, t('confirmTitle')),
             h('p', { className: 'dsh-sd-desc' },
               t('confirmDesc', { title: request.displayTitle || request.sessionId })),
-            error !== null && h('p', { className: 'dsh-sd-warn' }, t('failed', { message: error })),
+            warning !== null && h('p', { className: 'dsh-sd-warn', role: 'alert' }, warning),
             h('div', { className: 'dsh-sd-footer' },
               h('button', {
                 type: 'button', className: 'dsh-sd-btn', disabled: deleting,
@@ -241,7 +243,7 @@ window.__ModuleLoader__.load({
               }, t('cancel')),
               h('button', {
                 type: 'button', className: 'dsh-sd-btn', 'data-danger': true, disabled: deleting,
-                onClick: () => { void callDelete(request.sessionId) },
+                onClick: () => { void callDelete(request) },
               }, deleting ? t('deleting') : t('confirmAction')),
             ),
           ),
