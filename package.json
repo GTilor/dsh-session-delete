@@ -4,12 +4,23 @@
   "description": "为 DeepSeek Harness 侧栏会话补上「删除会话」：二次确认后真删，运行中置灰。Adds the missing per-session Delete action to the DSH sidebar.",
   "type": "module",
   "license": "MIT",
+  "author": {
+    "name": "lvguo"
+  },
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
     "session",
     "delete"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GTilor/dsh-session-delete.git"
+  },
+  "homepage": "https://github.com/GTilor/dsh-session-delete#readme",
+  "bugs": {
+    "url": "https://github.com/GTilor/dsh-session-delete/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -27,6 +38,9 @@
   ],
   "engines": {
     "dsh": "^0.2.3-alpha.2"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dsh": {
     "bundle": {
