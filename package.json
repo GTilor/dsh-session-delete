@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-delete-lite",
-  "version": "1.0.0",
-  "description": "为 DeepSeek Harness 侧栏会话补上「删除会话」：二次确认后真删，运行中置灰。Adds the missing per-session Delete action to the DSH sidebar.",
+  "version": "1.0.1",
+  "description": "极简 DeepSeek Harness 插件，只提供侧栏会话删除功能。 A minimal DeepSeek Harness plugin that only adds a Delete session action to the sidebar.",
   "type": "module",
   "scripts": {
     "test": "node --test"
@@ -40,7 +40,7 @@
     "icon.svg"
   ],
   "engines": {
-    "dsh": "^0.2.3-alpha.2"
+    "dsh": "0.2.2-rc.5 || ^0.2.3-alpha.2"
   },
   "publishConfig": {
     "access": "public"

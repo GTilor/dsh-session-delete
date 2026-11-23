@@ -1,6 +1,26 @@
 # dsh-session-delete-lite
 
-DeepSeek Harness ships archive, pin, rename and fork for sidebar sessions — but no delete. This plugin adds that one action, and nothing else.
+A minimal DeepSeek Harness (DSH) plugin that only adds a **Delete session** action to the sidebar.
+
+[简体中文](README.zh.md)
+
+## Install
+
+In DSH, open **Plugins → Add plugin** and paste the address below. Install and enable the plugin, then restart DSH.
+
+```text
+github:GTilor/dsh-session-delete#v1.0.1
+```
+
+For CLI installation, use the command below after quitting the desktop app. Change `desktop` to `web` if you use the Web profile.
+
+```bash
+dsh plugin --profile desktop add github:GTilor/dsh-session-delete#v1.0.1
+```
+
+You can also [download the .tgz package](https://github.com/GTilor/dsh-session-delete/releases/download/v1.0.1/dsh-session-delete-lite-1.0.1.tgz) and enter its local path in **Add plugin**.
+
+![Opening Delete session from the sidebar, confirming, and seeing the test session disappear](docs/delete-session-demo.gif)
 
 ## What it does
 
@@ -13,14 +33,6 @@ Deletion removes the JSONL directory DSH identifies for the session, its workspa
 SQLite stores multiple sessions in a shared database. For those sessions, the dialog explains the storage limitation and preserves both the history and the sidebar entry.
 
 When you delete the session on screen, the view moves to a fresh session in the same workspace. If cleanup is incomplete, the dialog tells you and stays open so you can retry.
-
-## Install
-
-```bash
-dsh plugin --profile desktop add github:GTilor/dsh-session-delete
-```
-
-Or install the folder: **Plugins** → **Add plugin** → pick this directory. Restart DSH afterwards.
 
 ## Remove
 
@@ -38,7 +50,7 @@ Run `npm test` in the project directory to run the regression tests with tempora
 
 ## Requirements
 
-DeepSeek Harness `^0.2.3-alpha.2`. Desktop and `dsh web` share the same Web-side APIs. The delete route has been tested with the `dsh web` host.
+Tested end to end with the Web UI in DeepSeek Harness `0.2.2-rc.5` and `0.2.3-alpha.2`. Desktop and `dsh web` share the same sidebar APIs.
 
 ## License
 

@@ -1,6 +1,26 @@
 # dsh-session-delete-lite
 
-DSH 有归档、置顶、重命名、分叉，但没有删除会话。这个插件只补这一件事。
+一个极简的 DeepSeek Harness（DSH）插件，只提供**从侧栏删除会话**的功能。
+
+[English](README.md)
+
+## 安装
+
+在 DSH 打开 **插件 → 添加插件**，粘贴下面的地址。安装并启用后重启 DSH。
+
+```text
+github:GTilor/dsh-session-delete#v1.0.1
+```
+
+也可以在退出桌面版后用命令行安装。用 Web 版时，把 `desktop` 换成 `web`。
+
+```bash
+dsh plugin --profile desktop add github:GTilor/dsh-session-delete#v1.0.1
+```
+
+你也可以[下载 .tgz 安装包](https://github.com/GTilor/dsh-session-delete/releases/download/v1.0.1/dsh-session-delete-lite-1.0.1.tgz)，在 **添加插件** 里输入文件的本地路径。
+
+![从侧栏打开删除会话，确认后测试会话消失](docs/delete-session-demo.gif)
 
 ## 功能
 
@@ -13,14 +33,6 @@ DSH 有归档、置顶、重命名、分叉，但没有删除会话。这个插�
 SQLite 把多个会话保存在同一个数据库里。遇到这种存储方式，确认框会显示原因，并保留会话和侧栏登记。
 
 如果删的正是你在看的会话，界面会切到同工作区的新会话。如果清理未完成，确认框会显示提示，你可以在同一个框里重试。
-
-## 安装
-
-```bash
-dsh plugin --profile desktop add github:GTilor/dsh-session-delete
-```
-
-也可以装本地目录：**插件** → **添加插件** → 选这个文件夹。装完重启 DSH。
 
 ## 卸载
 
@@ -38,7 +50,7 @@ dsh plugin --profile desktop remove dsh-session-delete-lite
 
 ## 版本要求
 
-DeepSeek Harness `^0.2.3-alpha.2`。桌面版与 `dsh web` 共用 Web 侧接口。删除接口已在 `dsh web` 宿主上验证。
+已在 DeepSeek Harness `0.2.2-rc.5` 和 `0.2.3-alpha.2` 的 Web 界面实测。桌面版与 `dsh web` 共用侧栏接口。
 
 ## 许可
 
