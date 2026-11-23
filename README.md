@@ -38,4 +38,4 @@ DeepSeek Harness `^0.2.3-alpha.2`. Desktop and `dsh web` share the same Web-side
 
 ## License
 
-MIT. Adapted from [DeepSeekHarness-Session-Delete](https://github.com/Ansellwan/DeepSeekHarness-Session-Delete) by Ansellwan, with the group-cleanup panel removed.
+MIT.

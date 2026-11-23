@@ -1,10 +1,11 @@
 /**
- * Client half of dsh-session-delete-lite.
+ * dsh-session-delete-lite 的客户端。
  *
- * Adds one row to the shipped `sidebar.workspaces.session.menu.item` list — the
- * same list pin / rename / fork / archive live in — so every session's “…” menu
- * gets a Delete action. The row only files a request; the confirm dialog and the
- * result toast live in `shell.overlay`, because a menu row unmounts with its menu.
+ * 我往官方的 `sidebar.workspaces.session.menu.item` 列表里加一行——置顶、重命名、
+ * 分叉、归档都住在那个列表里——这样每个会话的「…」菜单都会多出「删除会话」。
+ *
+ * 菜单行只负责发一个请求，确认框和结果提示放在 `shell.overlay`。原因是行会随
+ * 菜单一起卸载，把弹窗塞在行里，菜单一关弹窗就没了。
  */
 
 window.__ModuleLoader__.load({
@@ -69,7 +70,7 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
 
-    /** Register the locale namespace; the keyed effect tears it down with the plugin. */
+    /** 注册文案命名空间。用带 key 的 effect，插件卸载时字典跟着拆掉。 */
     function bindLocale(ctx) {
       ctx.effect(() => {
         try {
@@ -81,8 +82,8 @@ window.__ModuleLoader__.load({
       return ctx.locale.bind(NS)
     }
 
-    /* The menu row files a request here; the shell overlay renders it. A row
-     * unmounts with its menu, so the dialog cannot live inside the row. */
+    /* 菜单行把请求丢在这里，由 shell overlay 渲染。行会随菜单卸载，
+     * 所以弹窗不能住在行里面。 */
     let pending = null
     const listeners = new Set()
 
@@ -106,7 +107,7 @@ window.__ModuleLoader__.load({
       return request
     }
 
-    /** The shipped trash outline glyph, so the row matches its neighbours. */
+    /** 用官方那套垃圾桶线框图标，跟旁边的菜单项保持一个笔触。 */
     function TrashIcon() {
       return h('svg', {
         width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none',
@@ -121,7 +122,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** Menu row: shown for every session; a running one greys out. */
+    /** 菜单行：每个会话都有；正在干活的会话自动置灰。 */
     function DeleteMenuItem({ sessionId, displayTitle, useMenuOpenState, useSessionStatus, useWorkspaces, ctx, t }) {
       const [, setMenuOpen] = useMenuOpenState()
       const status = useSessionStatus((snapshot) =>
@@ -135,7 +136,7 @@ window.__ModuleLoader__.load({
         })
         : undefined
 
-      /** Whether the main view currently shows this session. */
+      /** 这个会话此刻是不是正在主视图里显示。 */
       const isMainViewOpen = () => {
         try {
           const info = ctx?.get?.('sessions')?.retainInfo?.(sessionId)?.getSnapshot?.()
@@ -162,7 +163,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** Overlay occupant: one confirm dialog per request, plus the result toast. */
+    /** overlay 里的常驻组件：每个请求弹一次确认框，外加结果提示。 */
     function DeleteOverlay({ t, ctx }) {
       const request = usePending()
       const [deleting, setDeleting] = React.useState(false)
@@ -180,7 +181,7 @@ window.__ModuleLoader__.load({
         setDeleting(false)
       }, [request?.sessionId])
 
-      /** Start a fresh session in the same workspace when the open one was deleted. */
+      /** 删掉的正是当前会话时，在同工作区新开一个，别把人留在已删除的对话上。 */
       const leaveDeletedConversation = (workspaceId) => {
         try {
           const uiWorkspace = ctx?.get?.('uiWorkspace')
@@ -188,7 +189,7 @@ window.__ModuleLoader__.load({
           if (typeof workspaceId === 'string' && workspaceId !== '') uiWorkspace.startSession(workspaceId)
           else uiWorkspace.startSession()
         } catch {
-          /* navigation is a convenience */
+          /* 跳转只是顺手的事，失败了不影响删除结果 */
         }
       }
 
@@ -211,12 +212,12 @@ window.__ModuleLoader__.load({
           const stillLive = payload?.live === true
           setToast(stillLive ? t('doneLive') : t('done'))
           settle()
-          // A cold delete leaves no unload event, so re-pull the list baseline.
+          // 冷会话删除不会产生卸载事件，所以主动重拉一次列表基线。
           try {
             const refreshed = ctx?.get?.('sessions')?.refresh?.()
             if (refreshed && typeof refreshed.catch === 'function') refreshed.catch(() => {})
           } catch {
-            /* refresh is a convenience */
+            /* 刷新同样是顺手的事 */
           }
           if (wasOpen && !stillLive) window.setTimeout(() => leaveDeletedConversation(workspaceId), 0)
         } catch (reason) {

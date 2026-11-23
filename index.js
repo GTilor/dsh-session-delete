@@ -1,17 +1,16 @@
 /**
- * Host half of dsh-session-delete-lite.
+ * dsh-session-delete-lite 的宿主端。
  *
- * DSH ships archive / pin / rename / fork for sidebar sessions but no delete.
- * This plugin adds only that action, behind two private routes:
+ * 我只做一件事：DSH 有归档、置顶、重命名、分叉，偏偏没有删除会话。客户端通过
+ * 两个私有路由找我：
  *
  *   GET  /_dsh-session-delete/status?sessionId=…  → { busy, detail, resident }
  *   POST /_dsh-session-delete/delete {sessionId}  → { ok, removed, … }
  *
- * A delete: refuse while the session owns live work; unload it from the Host's
- * live store so the row is dropped rather than hidden; drop it from the
- * workspace registry; erase its payload (log directory, projection-cache
- * record, spilled tool results). If the unload probe fails, the row is hidden
- * instead and the response says so.
+ * 删除的顺序是踩过坑之后定下来的：先自己复查一遍会话是不是还在干活，有活就不
+ * 删；再把仍留在内存里的会话从宿主卸掉，这样侧栏那一行是真的消失，而不是藏起
+ * 来；然后从工作区登记里摘掉；最后抹掉磁盘载荷（会话目录、投影缓存、溢出的工
+ * 具结果）。卸载探针失败时我选择降级隐藏，并在响应里如实说明，绝不假装删干净。
  */
 
 import { homedir, tmpdir } from 'node:os'
@@ -38,20 +37,20 @@ const uuidOf = (sessionId) => sessionId.slice('session-'.length)
 const spillSessionDirName = (sessionId) =>
   `session-${createHash('sha256').update(sessionId).digest('hex').slice(0, 12)}`
 
-/** Append one diagnostic line; logging must never break a request. */
+/** 写一行诊断日志。日志自己绝不能把请求搞挂，所以整段都吞异常。 */
 function opLog(line) {
   try {
     mkdirSync(dirname(opLogPath()), { recursive: true })
     appendFileSync(opLogPath(), `${new Date().toISOString()} ${line}\n`, 'utf8')
   } catch {
-    /* swallow */
+    /* 写不进去就算了 */
   }
 }
 
 export const name = 'session-delete-lite'
 export const inject = ['webServer', 'connection', 'storageDomain']
 
-/** Resolve a Host service without making it a load-time dependency. */
+/** 按需取宿主服务：拿不到就给 undefined，别让它在加载期变成硬依赖。 */
 function serviceOf(ctx, key) {
   try {
     return ctx.get?.(key) ?? ctx[key]
@@ -60,7 +59,7 @@ function serviceOf(ctx, key) {
   }
 }
 
-/** Authoritative liveness re-check; the sidebar's greyed row is only a hint. */
+/** 删除前自己再查一次活。侧栏把菜单项置灰只是提示，真正拦人的是这里。 */
 function probeBusy(ctx, sessionId) {
   const agents = serviceOf(ctx, 'agents')
   if (!agents || typeof agents.get !== 'function') return { busy: false, detail: 'agents-unavailable' }
@@ -79,7 +78,7 @@ function probeBusy(ctx, sessionId) {
   return { busy: false, detail: 'agent-idle' }
 }
 
-/** Whether the Host still holds the session in memory (the only reason a row survives). */
+/** 会话是否还留在宿主内存里。只要还在，侧栏那一行就掉不了。 */
 function isResident(ctx, sessionId) {
   const sessions = serviceOf(ctx, 'sessions')
   if (!sessions || typeof sessions.get !== 'function') return false
@@ -91,11 +90,12 @@ function isResident(ctx, sessionId) {
 }
 
 /**
- * Remove a resident session from memory so the browser DROPS its row. DSH has no
- * documented unload API, so this reaches the framework's own teardown
- * (`liveEntryFor(session).detach()`), which emits `session/disposed` →
- * `api-session/removed`. Every step is probed; a miss returns unloaded:false and
- * the caller degrades honestly.
+ * 把还在内存里的会话真正卸掉，浏览器那边才会把这一行丢掉。
+ *
+ * DSH 没有公开的卸载接口，所以我走框架自己的拆解路径
+ * （`liveEntryFor(session).detach()`），它会发出 `session/disposed` →
+ * `api-session/removed`。每一步都先探测能力，探不到就返回 unloaded:false，
+ * 由调用方老实降级。
  */
 async function unloadLiveSession(ctx, sessionId) {
   const sessions = serviceOf(ctx, 'sessions')
@@ -121,7 +121,7 @@ async function unloadLiveSession(ctx, sessionId) {
     : { unloaded: true, detail: 'detached' }
 }
 
-/** Degraded fallback: archive a row we could not unload, and report it as hidden. */
+/** 降级兜底：卸不掉的会话就归档藏起来，并在响应里标成 hidden。 */
 async function hideLiveRemnant(ctx, sessionId) {
   const domain = serviceOf(ctx, 'storageDomain')?.get?.('workspace')
   if (!domain?.global) return false
@@ -133,7 +133,7 @@ async function hideLiveRemnant(ctx, sessionId) {
   return true
 }
 
-/** Drop archived/pinned ids whose session payload no longer exists. */
+/** 清掉指向已不存在会话的归档/置顶标记——那种 id 点开只会报错。 */
 async function pruneDanglingIds(ctx) {
   const domain = serviceOf(ctx, 'storageDomain')?.get?.('workspace')
   if (!domain?.global) return 0
@@ -155,7 +155,7 @@ async function pruneDanglingIds(ctx) {
   return dropped
 }
 
-/** Remove the session from the workspace registry (global sets + every workspace row). */
+/** 从工作区登记里摘掉：全局的归档/置顶集合，加上每个工作区的 sessionIds。 */
 async function forgetInRegistry(ctx, sessionId) {
   const domain = serviceOf(ctx, 'storageDomain')?.get?.('workspace')
   if (!domain || typeof domain.table !== 'function' || !domain.global) {
@@ -189,7 +189,7 @@ async function forgetInRegistry(ctx, sessionId) {
   return removed
 }
 
-/** Erase the session's log directory under `~/.dsh/sessions/`. */
+/** 删掉 `~/.dsh/sessions/` 下这个会话的目录。 */
 async function eraseSessionLog(sessionId) {
   const removed = []
   const root = sessionsRoot()
@@ -203,7 +203,7 @@ async function eraseSessionLog(sessionId) {
   return removed
 }
 
-/** Erase spilled tool results: only the session-hashed dir, never a spill root. */
+/** 删溢出的工具结果：只删按会话哈希命名的那个目录，绝不碰 spill 根目录。 */
 async function eraseSpill(sessionId) {
   const removed = []
   let entries
@@ -227,7 +227,7 @@ async function eraseSpill(sessionId) {
   return removed
 }
 
-/** Erase the projection-cache record, through the live domain and then the file. */
+/** 删投影缓存：先走活着的 domain，再兜底删文件。 */
 async function eraseProjcache(ctx, sessionId) {
   const removed = []
   const uuid = uuidOf(sessionId)
@@ -270,7 +270,7 @@ async function erasePayload(ctx, sessionId) {
   return removed
 }
 
-/** A deleted-but-resident session may still flush its cache once; re-purge it. */
+/** 没卸掉的会话可能还会把缓存回写一次，所以过几秒再清一遍。 */
 function scheduleResidualPurge(ctx, sessionId) {
   const timer = setTimeout(() => {
     void eraseProjcache(ctx, sessionId).catch((error) =>
@@ -279,7 +279,7 @@ function scheduleResidualPurge(ctx, sessionId) {
   timer.unref?.()
 }
 
-/** Read one JSON body; empty bodies resolve to {}. */
+/** 读一个 JSON 请求体；空体当 {}。 */
 async function readJsonBody(req) {
   const chunks = []
   for await (const chunk of req) chunks.push(chunk)
@@ -310,7 +310,7 @@ export function apply(ctx) {
     return
   }
 
-  /** Plugin routes are public by default; reuse the shipped /api trust gate. */
+  /** 插件路由默认是公开的，这里复用官方 /api 那套连接信任检查。 */
   const rejectUntrusted = (req, res) => {
     const connection = serviceOf(ctx, 'connection')
     if (!connection) return false
@@ -405,8 +405,8 @@ export function apply(ctx) {
 
   let routeDisposer
   if (typeof ctx.effect === 'function') {
-    // Register inside the plugin lifecycle: an unload or hot swap must release
-    // the prefix, or a later reinstall collides with 'duplicate prefix route'.
+    // 路由注册挂在插件生命周期里：卸载或热替换时必须把前缀还回去，
+    // 否则下次重装会撞上 'duplicate prefix route'。
     ctx.effect(() => server.register(route), 'session-delete-lite: routes')
   } else {
     routeDisposer = server.register(route)

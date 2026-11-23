@@ -38,4 +38,4 @@ DeepSeek Harness `^0.2.3-alpha.2`。桌面版与 `dsh web` 用的是同一套 We
 
 ## 许可
 
-MIT。改编自 Ansellwan 的 [DeepSeekHarness-Session-Delete](https://github.com/Ansellwan/DeepSeekHarness-Session-Delete)，去掉了分组清理面板。
+MIT。
