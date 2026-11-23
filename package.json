@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-delete-lite",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "极简 DeepSeek Harness 插件，只提供侧栏会话删除功能。 A minimal DeepSeek Harness plugin that only adds a Delete session action to the sidebar.",
   "type": "module",
   "scripts": {
@@ -26,6 +26,7 @@
   },
   "exports": {
     ".": "./index.js",
+    "./web-agents": "./web-agents.js",
     "./client": "./client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
@@ -34,6 +35,7 @@
   },
   "files": [
     "index.js",
+    "web-agents.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",

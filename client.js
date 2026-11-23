@@ -13,6 +13,10 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
+    const {
+      Button, IconTrashOutlineRegular, IconWarningOutlineRegular,
+      MenuItemButton, Modal, ReferenceIconRegular, Toast,
+    } = require('@deepseek-ai/dsh-client-ui-primitives')
 
     const NS = 'dsh-session-delete-lite'
     const DICT = {
@@ -20,54 +24,112 @@ window.__ModuleLoader__.load({
         menu: '删除会话',
         menuBusy: '会话运行中，无法删除',
         confirmTitle: '删除会话？',
-        confirmDesc: '永久删除「{title}」的对话记录与本地数据，无法恢复。',
-        confirmAction: '删除',
+        confirmDesc: '删除后，对话记录和本地数据都无法恢复。',
+        confirmAction: '永久删除',
+        retry: '重试删除',
         cancel: '取消',
-        deleting: '删除中…',
-        done: '已删除',
-        partial: '会话未完整删除，可能还有记录或文件。可以重试。',
+        close: '关闭',
+        deleting: '正在删除…',
+        done: '会话已删除',
+        failed: '会话删除失败',
+        incomplete: '会话未完全删除',
+        partial: '可能还有记录或文件，重试可继续清理。',
+        connectionFailed: '暂时无法连接到 DeepSeek Harness，请稍后重试。',
+        responseUnavailable: '暂时无法确认删除结果，请稍后重试。',
+        confirmationTimedOut: '等待删除结果超时。清理可能仍在进行，请稍后重试确认。',
+        sessionBusy: '会话仍有进行中的工作，结束后可以重试。',
+        sessionChanging: '会话正在打开或删除，请稍后重试。',
+        sessionHeld: '会话仍由其他组件持有，释放后可以重试。',
+        writerHeld: '另一个进程正在使用这个会话，结束后可以重试。',
         unsupportedStorage: '此会话没有可单独删除的 JSONL 文件。SQLite 等共享存储暂不支持删除。',
-        failed: '删除失败：{message}',
       },
       en: {
         menu: 'Delete session',
-        menuBusy: 'Session is running; cannot delete',
+        menuBusy: 'Cannot delete a busy session',
         confirmTitle: 'Delete session?',
-        confirmDesc: 'Permanently deletes “{title}” — its history and local data. This cannot be undone.',
-        confirmAction: 'Delete',
+        confirmDesc: 'Deleting this session permanently removes its conversation history and local data.',
+        confirmAction: 'Delete permanently',
+        retry: 'Retry deletion',
         cancel: 'Cancel',
+        close: 'Close',
         deleting: 'Deleting…',
         done: 'Session deleted',
-        partial: 'Session deletion is incomplete. Some records or files may remain. You can retry.',
+        failed: 'Couldn’t delete session',
+        incomplete: 'Session deletion incomplete',
+        partial: 'Some records or files may remain. Retry to finish the cleanup.',
+        connectionFailed: 'Couldn’t reach DeepSeek Harness. Check your connection and try again.',
+        responseUnavailable: 'Couldn’t confirm the deletion. Try again in a moment.',
+        confirmationTimedOut: 'The deletion is taking longer than expected. It may still be in progress. Retry to check the result.',
+        sessionBusy: 'This session still has work in progress. Try again when it finishes.',
+        sessionChanging: 'This session is being opened or deleted. Try again in a moment.',
+        sessionHeld: 'Another component is using this session. Try again when it releases the session.',
+        writerHeld: 'Another process is using this session. Try again when it releases the session.',
         unsupportedStorage: 'This session has no separate JSONL file. Deletion from shared storage such as SQLite is currently unavailable.',
-        failed: 'Delete failed: {message}',
       },
     }
 
     const STYLE_ID = 'dsh-session-delete-lite-style'
+    const ERROR_LABELS = new Map([
+      ['unsupported-storage', 'unsupportedStorage'],
+      ['session-busy', 'sessionBusy'],
+      ['session-changing', 'sessionChanging'],
+      ['session-held', 'sessionHeld'],
+      ['writer-held', 'writerHeld'],
+    ])
 
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return
       const style = document.createElement('style')
       style.id = STYLE_ID
       style.textContent = `
-.dsh-sd-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
-.dsh-sd-dialog { width: min(420px, calc(100vw - 48px)); border-radius: 12px; border: .5px solid var(--dsw-alias-border-l2, #333); background: var(--dsw-alias-bg-layer-2, #1f1f1f); color: var(--dsw-alias-label-primary, #eee); padding: 18px; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
-.dsh-sd-menu-item { appearance: none; -webkit-appearance: none; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; margin: 0; padding: 6px 8px; border: 0; border-radius: var(--dsw-radius-md, 8px); background: transparent; color: var(--dsw-alias-label-primary, #eee); font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer; }
-.dsh-sd-menu-item:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.06)); }
-.dsh-sd-menu-item:focus-visible:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.06)); outline: none; }
-.dsh-sd-menu-item[aria-disabled="true"], .dsh-sd-menu-item:disabled { opacity: .4; cursor: not-allowed; }
-.dsh-sd-menu-item-icon { display: inline-flex; flex: none; width: 14px; height: 14px; align-items: center; justify-content: center; color: inherit; }
-.dsh-sd-menu-item-icon svg { width: 14px; height: 14px; }
-.dsh-sd-menu-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-sd-title { margin: 0 0 8px; font-size: 17px; font-weight: 600; }
-.dsh-sd-desc { margin: 0 0 16px; font-size: 15px; line-height: 22px; color: var(--dsw-alias-label-secondary, #aaa); word-break: break-all; }
-.dsh-sd-warn { margin: 0 0 14px; font-size: 15px; color: var(--dsw-alias-state-error-primary, #f85149); }
-.dsh-sd-footer { display: flex; justify-content: flex-end; gap: 8px; }
-.dsh-sd-btn { padding: 7px 16px; border-radius: 8px; border: .5px solid var(--dsw-alias-border-l2, #444); background: transparent; color: inherit; font: inherit; font-size: 15px; cursor: pointer; }
-.dsh-sd-btn:disabled { opacity: .55; cursor: default; }
-.dsh-sd-btn[data-danger="true"] { border-color: transparent; background: var(--dsw-alias-state-error-primary, #d1242f); color: #fff; }
-.dsh-sd-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 10000; padding: 10px 18px; border-radius: 999px; background: var(--dsw-alias-bg-layer-2, #1f1f1f); border: .5px solid var(--dsw-alias-border-l2, #333); color: var(--dsw-alias-label-primary, #eee); font-size: 15px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.dsh-sd-dialog {
+  max-height: 100%;
+}
+.dsh-sd-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.dsh-sd-subject {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.dsh-sd-subject svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-sd-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.dsh-sd-warning svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--dsw-alias-state-warn-label);
+}
+.dsh-sd-confirm {
+  --dsw-alias-button-primary-fill: var(--dsw-alias-state-business-tertiary);
+  --dsw-alias-button-primary-hover: color-mix(in srgb, var(--dsw-alias-state-business-primary) 8%, var(--dsw-alias-state-business-tertiary));
+  --dsw-alias-label-primary-foreground: var(--dsw-alias-label-primary-bluish);
+}
 `
       document.head.appendChild(style)
     }
@@ -89,12 +151,14 @@ window.__ModuleLoader__.load({
     let pending = null
     const listeners = new Set()
 
-    function requestDelete(sessionId, displayTitle, workspaceId, wasOpen) {
-      pending = { sessionId, displayTitle, workspaceId, wasOpen }
+    function requestDelete(sessionId, displayTitle, workspaceId) {
+      if (pending !== null) return
+      pending = { sessionId, displayTitle, workspaceId }
       for (const listener of listeners) listener()
     }
 
-    function settle() {
+    function settle(request) {
+      if (pending !== request) return
       pending = null
       for (const listener of listeners) listener()
     }
@@ -109,23 +173,8 @@ window.__ModuleLoader__.load({
       return request
     }
 
-    /** 用官方那套垃圾桶线框图标，跟旁边的菜单项保持一个笔触。 */
-    function TrashIcon() {
-      return h('svg', {
-        width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none',
-        stroke: 'currentColor', strokeWidth: 1, 'aria-hidden': true,
-        style: { flex: 'none' },
-      },
-        h('path', { d: 'M1.28149 3.88831H14.7187' }),
-        h('path', { d: 'M5.41602 3.88833V2.47962C5.41602 2.29282 5.52492 2.11366 5.71876 1.98157C5.9126 1.84948 6.17551 1.77527 6.44964 1.77527H9.55053C9.82466 1.77527 10.0876 1.84948 10.2814 1.98157C10.4753 2.11366 10.5842 2.29282 10.5842 2.47962V3.88833' }),
-        h('path', { d: 'M2.57349 3.88831L3.19366 13.2943C3.21937 13.5502 3.33952 13.7872 3.53065 13.9593C3.72178 14.1313 3.97016 14.2259 4.22729 14.2246H11.7728C12.0299 14.2259 12.2783 14.1313 12.4694 13.9593C12.6605 13.7872 12.7807 13.5502 12.8064 13.2943L13.4266 3.88831' }),
-        h('path', { d: 'M6.44946 6.98926V11.1238' }),
-        h('path', { d: 'M9.55054 6.98926V11.1238' }),
-      )
-    }
-
     /** 菜单行：每个会话都有；正在干活的会话自动置灰。 */
-    function DeleteMenuItem({ sessionId, displayTitle, useMenuOpenState, useSessionStatus, useWorkspaces, ctx, t }) {
+    function DeleteMenuItem({ sessionId, displayTitle, useMenuOpenState, useSessionStatus, useWorkspaces, t }) {
       const [, setMenuOpen] = useMenuOpenState()
       const status = useSessionStatus((snapshot) =>
         snapshot instanceof Map ? snapshot.get(sessionId) : snapshot?.[sessionId])
@@ -138,54 +187,34 @@ window.__ModuleLoader__.load({
         })
         : undefined
 
-      /** 这个会话此刻是不是正在主视图里显示。 */
-      const isMainViewOpen = () => {
-        try {
-          const info = ctx?.get?.('sessions')?.retainInfo?.(sessionId)?.getSnapshot?.()
-          return (info?.retainedBy?.mainView ?? 0) > 0
-        } catch {
-          return false
-        }
-      }
-
-      return h('button', {
-        type: 'button',
-        role: 'menuitem',
-        className: 'dsh-sd-menu-item',
-        'aria-disabled': busy ? 'true' : undefined,
-        title: busy ? t('menuBusy') : undefined,
-        onClick: () => {
-          if (busy) return
+      return h(MenuItemButton, {
+        icon: h(IconTrashOutlineRegular, { size: 14 }),
+        separatorBefore: true,
+        disabled: busy,
+        disabledReason: busy ? t('menuBusy') : undefined,
+        onSelect: () => {
           setMenuOpen(false)
-          requestDelete(sessionId, displayTitle, workspaceId, isMainViewOpen())
+          requestDelete(sessionId, displayTitle, workspaceId)
         },
-      },
-        h('span', { className: 'dsh-sd-menu-item-icon', 'aria-hidden': 'true' }, h(TrashIcon)),
-        h('span', { className: 'dsh-sd-menu-item-label' }, busy ? t('menuBusy') : t('menu')),
-      )
+      }, busy ? t('menuBusy') : t('menu'))
     }
 
-    /** overlay 里的常驻组件：每个请求弹一次确认框，外加结果提示。 */
-    function DeleteOverlay({ t, ctx }) {
-      const request = usePending()
+    function DeleteDialog({ request, t, ctx, showNotice }) {
+      const subjectId = React.useId()
+      const warningId = subjectId + '-warning'
       const [deleting, setDeleting] = React.useState(false)
+      const inFlight = React.useRef(false)
       const [warning, setWarning] = React.useState(null)
-      const [toast, setToast] = React.useState(null)
 
-      React.useEffect(() => {
-        if (toast === null) return
-        const timer = window.setTimeout(() => setToast(null), 3200)
-        return () => window.clearTimeout(timer)
-      }, [toast])
-
-      React.useEffect(() => {
-        setWarning(null)
-        setDeleting(false)
-      }, [request?.sessionId])
+      const close = () => {
+        if (!inFlight.current) settle(request)
+      }
 
       /** 删掉的正是当前会话时，在同工作区新开一个，别把人留在已删除的对话上。 */
-      const leaveDeletedConversation = (workspaceId) => {
+      const leaveDeletedConversation = (sessionId, workspaceId) => {
         try {
+          const info = ctx?.get?.('sessions')?.retainInfo?.(sessionId)?.getSnapshot?.()
+          if (!(info?.retainedBy?.mainView > 0)) return
           const uiWorkspace = ctx?.get?.('uiWorkspace')
           if (typeof uiWorkspace?.startSession !== 'function') return
           if (typeof workspaceId === 'string' && workspaceId !== '') uiWorkspace.startSession(workspaceId)
@@ -195,21 +224,32 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const callDelete = async ({ sessionId, wasOpen, workspaceId }) => {
+      const callDelete = async () => {
+        if (inFlight.current) return
+        inFlight.current = true
+        const { sessionId, workspaceId } = request
         setDeleting(true)
         setWarning(null)
+        showNotice(null)
         try {
+          const signal = AbortSignal.timeout(30_000)
           const response = await fetch('/_dsh-session-delete/delete', {
             method: 'POST',
             credentials: 'same-origin',
+            signal,
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ sessionId }),
+          }).catch(() => {
+            throw new Error(t(signal.aborted ? 'confirmationTimedOut' : 'connectionFailed'))
           })
-          const payload = await response.json().catch(() => ({}))
-          const partial = payload?.partial === true
+          const payload = await response.json().catch(() => {
+            throw new Error(t(signal.aborted ? 'confirmationTimedOut' : 'responseUnavailable'))
+          })
+          const partial = response.status === 207 && payload?.partial === true
           if (!response.ok || (payload?.ok !== true && !partial)) {
-            if (payload?.code === 'unsupported-storage') throw new Error(t('unsupportedStorage'))
-            throw new Error(payload?.error ?? `HTTP ${response.status}`)
+            const reasonKey = ERROR_LABELS.get(payload?.code)
+            if (reasonKey) throw new Error(t(reasonKey))
+            throw new Error(typeof payload?.error === 'string' ? payload.error : t('responseUnavailable'))
           }
           // 冷会话删除不会产生卸载事件，所以主动重拉一次列表基线。
           try {
@@ -220,38 +260,62 @@ window.__ModuleLoader__.load({
           }
           if (partial) {
             setWarning(t('partial'))
+            showNotice('incomplete')
             return
           }
-          setToast(t('done'))
-          settle()
-          if (wasOpen) window.setTimeout(() => leaveDeletedConversation(workspaceId), 0)
+          showNotice('done')
+          settle(request)
+          leaveDeletedConversation(sessionId, workspaceId)
         } catch (reason) {
-          setWarning(t('failed', { message: reason instanceof Error ? reason.message : String(reason) }))
+          setWarning(reason instanceof Error ? reason.message : String(reason))
+          showNotice('failed')
         } finally {
+          inFlight.current = false
           setDeleting(false)
         }
       }
 
-      return h(React.Fragment, null,
-        request !== null && h('div', { className: 'dsh-sd-overlay', role: 'presentation' },
-          h('div', { className: 'dsh-sd-dialog', role: 'dialog', 'aria-modal': true, 'aria-label': t('confirmTitle') },
-            h('h2', { className: 'dsh-sd-title' }, t('confirmTitle')),
-            h('p', { className: 'dsh-sd-desc' },
-              t('confirmDesc', { title: request.displayTitle || request.sessionId })),
-            warning !== null && h('p', { className: 'dsh-sd-warn', role: 'alert' }, warning),
-            h('div', { className: 'dsh-sd-footer' },
-              h('button', {
-                type: 'button', className: 'dsh-sd-btn', disabled: deleting,
-                onClick: () => { if (!deleting) settle() },
-              }, t('cancel')),
-              h('button', {
-                type: 'button', className: 'dsh-sd-btn', 'data-danger': true, disabled: deleting,
-                onClick: () => { void callDelete(request) },
-              }, deleting ? t('deleting') : t('confirmAction')),
-            ),
-          ),
+      const actionLabel = warning === null ? t('confirmAction') : t('retry')
+      return h(Modal, {
+        open: true, onClose: close, closeLabel: t('close'),
+        title: t('confirmTitle'), description: t('confirmDesc'),
+        className: 'dsh-sd-dialog', contentClassName: 'dsh-sd-content',
+        footer: h(React.Fragment, null,
+          h(Button, {
+            variant: 'outline', disabled: deleting, onClick: close, 'data-modal-autofocus': true,
+          }, t('cancel')),
+          h(Button, {
+            variant: 'primary', className: 'dsh-sd-confirm', disabled: deleting,
+            'aria-busy': deleting, 'aria-describedby': warning === null ? subjectId : subjectId + ' ' + warningId,
+            onClick: callDelete,
+          }, deleting ? t('deleting') : actionLabel),
         ),
-        toast !== null && h('div', { className: 'dsh-sd-toast' }, toast),
+      },
+        h('p', { className: 'dsh-sd-subject', id: subjectId },
+          h(ReferenceIconRegular, { kind: 'session', size: 16 }),
+          h('bdi', null, request.displayTitle || request.sessionId),
+        ),
+        warning !== null && h('p', { className: 'dsh-sd-warning', id: warningId },
+          h(IconWarningOutlineRegular, { size: 16 }), h('span', null, warning),
+        ),
+      )
+    }
+
+    /** 每次结果都重新挂载原生提示，同一会话重复失败也能得到完整的提示时间。 */
+    function DeleteOverlay({ t, ctx }) {
+      const request = usePending()
+      const [notice, setNotice] = React.useState({ textKey: null, sequence: 0 })
+      const showNotice = textKey => setNotice(previous => ({ textKey, sequence: previous.sequence + 1 }))
+      return h(React.Fragment, null,
+        request !== null && h(DeleteDialog, { key: request.sessionId, request, t, ctx, showNotice }),
+        notice.textKey !== null && h(Toast, {
+          key: notice.sequence, text: t(notice.textKey),
+          tone: notice.textKey === 'done' ? 'success' : undefined,
+          icon: h(IconWarningOutlineRegular, { size: 16 }),
+          onDone: () => setNotice(previous => previous.sequence === notice.sequence
+            ? { ...previous, textKey: null }
+            : previous),
+        }),
       )
     }
 
@@ -268,7 +332,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('sidebar.workspaces.session.menu.item', () =>
           ctx.slots.register(
             { name: 'sidebar.workspaces.session.menu.item', id: 'dsh-session-delete-lite', order: 500 },
-            (props) => h(DeleteMenuItem, { ...props, ctx, t }),
+            (props) => h(DeleteMenuItem, { ...props, t }),
           ),
         )
 

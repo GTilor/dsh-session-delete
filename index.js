@@ -2,18 +2,20 @@
  * dsh-session-delete-lite 的宿主端。
  *
  * POST /_dsh-session-delete/delete {sessionId}
- * 复查运行状态，卸载内存中的会话，移除工作区登记，再清理磁盘数据。
+ * 检查运行状态，关闭会话，清理并复查磁盘记录，最后移除工作区登记。
  */
 
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
-import { rm, readdir } from 'node:fs/promises'
+import { lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises'
 import { appendFileSync, mkdirSync } from 'node:fs'
+import { createWebAgentAccess } from './web-agents.js'
 
 const DELETE_ROUTE = '/_dsh-session-delete/delete'
 const SESSION_ID_RE = /^session-[0-9a-fA-F-]{36}$/
 const SPILL_ROOT_RE = /^dsh-spill-[A-Za-z0-9_-]{6}$/
+const STAGING_DIR = '.dsh-session-delete'
 
 const dshHome = () => {
   const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir()
@@ -38,16 +40,17 @@ function opLog(line) {
 }
 
 export const name = 'session-delete-lite'
-export const inject = ['webServer', 'connection', 'agents', 'sessions', 'sessionPersistence', 'storageDomain', 'workspaceRegistry']
+export const inject = ['agents']
 
 /** 宿主在真正删除前再查一次活动状态。 */
 function assertIdle(agents, sessionId, activity = []) {
   const agent = agents.get(sessionId)
   const snapshot = agent?.session?.getSnapshot?.() ?? agent?.getSnapshot?.()
-  if (activity.length > 0 || agent?.status === 'running' ||
+  if (activity.length > 0 || agent?.status === 'running' || agent?.inbox?.nextTurn?.length > 0 ||
+      agent?.inbox?.nextStep?.some(message => message.source?.kind === 'user') ||
       snapshot?.running === true || snapshot?.pendingInteraction != null) {
     opLog(`会话正忙 ${sessionId}`)
-    throw Object.assign(new Error('会话仍有进行中的工作，无法删除'), { statusCode: 409 })
+    throw Object.assign(new Error('会话仍有进行中的工作，无法删除'), { statusCode: 409, code: 'session-busy' })
   }
 }
 
@@ -61,13 +64,18 @@ function jsonlSessionDir(stored, sessionId) {
 }
 
 /** 走 DSH 自己的拆解路径，让宿主发出会话移除事件。 */
-function unloadLiveSession(ctx, sessionId, expected) {
-  // Agent 的销毁句柄归创建者持有。单独摘掉 Session 会让 Agent 继续持有原对话。
-  if (ctx.agents.get(sessionId)?.session != null) return false
+async function unloadLiveSession(ctx, sessionId, expected) {
   const sessions = ctx.sessions
   const session = sessions.get(sessionId)
-  if (session == null) return true
   if (session !== expected) return false
+  const agent = ctx.agents.get(sessionId)
+  if (agent != null) {
+    const handle = ctx.sessionDeleteWebAgents.handleFor(agent)
+    if (!handle || agent.session !== expected || expected == null || expected.header?.origin === 'subagent') return false
+    await handle.dispose()
+    return !stillLoaded(ctx, sessionId)
+  }
+  if (session == null) return true
   const entry = sessions.liveEntryFor?.(session)
   if (entry == null || typeof sessions.detachEntered !== 'function') return false
   sessions.detachEntered(entry)
@@ -75,12 +83,30 @@ function unloadLiveSession(ctx, sessionId, expected) {
 }
 
 function stillLoaded(ctx, sessionId) {
-  return ctx.sessions.get(sessionId) != null || ctx.agents.get(sessionId)?.session != null
+  return ctx.sessions.get(sessionId) != null || ctx.agents.get(sessionId) != null
 }
 
-async function forgetInRegistry(registry, sessionId) {
+function sessionChanging() {
+  return Object.assign(new Error('会话正在打开或删除，请稍后重试'), { statusCode: 409, code: 'session-changing' })
+}
+
+async function claimHistory(persistence, sessionId) {
+  try {
+    return await persistence.open(sessionId, 'write')
+  } catch (error) {
+    if (error?.name === 'SessionPersistenceNotFoundError') throw sessionChanging()
+    if (error?.name !== 'SessionAlreadyOwnedError') throw error
+    throw Object.assign(new Error('另一个进程正在使用这个会话，结束后可以重试'), { statusCode: 409, code: 'writer-held' })
+  }
+}
+
+async function forgetInRegistry(ctx, sessionId) {
+  const registry = ctx.workspaceRegistry
+  const table = ctx.storageDomain.get('workspace')?.table('workspaces')
   for (const workspace of registry.list()) {
-    if (workspace.sessionIds.includes(sessionId)) await workspace.detachSession(sessionId)
+    // After a restart the public membership hides sessions whose log is gone.
+    const sessionIds = table?.get(workspace.id)?.sessionIds ?? workspace.sessionIds
+    if (sessionIds.includes(sessionId)) await workspace.detachSession(sessionId)
   }
   await registry.unpinSession(sessionId)
   await registry.unarchiveSession(sessionId)
@@ -101,17 +127,16 @@ async function cleanupStep(label, operation) {
 async function eraseSessionDirs(root, sessionDir, parentPattern) {
   let dirs
   try {
-    dirs = await readdir(root, { withFileTypes: true })
+    dirs = await listDirectories(root)
   } catch (error) {
-    if (error?.code === 'ENOENT') return true
     opLog(`目录读取失败 ${root}: ${error?.message ?? error}`)
     return false
   }
 
   let complete = true
   for (const dir of dirs) {
-    if (!dir.isDirectory() || (parentPattern && !parentPattern.test(dir.name))) continue
-    const target = join(root, dir.name, sessionDir)
+    if (parentPattern && !parentPattern.test(dir)) continue
+    const target = join(root, dir, sessionDir)
     const removed = await cleanupStep(`目录删除失败 ${target}`, () => rm(target, { recursive: true, force: true }))
     if (!removed) complete = false
   }
@@ -136,34 +161,148 @@ async function eraseProjcache(storageDomain, sessionId) {
   return complete
 }
 
-async function eraseHistory(persistence, sessionId, directory) {
-  if (directory !== undefined) {
-    return cleanupStep(`会话目录删除失败 ${directory}`, () => rm(directory, { recursive: true, force: true }))
-  }
-  // 重试时日志可能已经删掉。只在此 JSONL 后端配置的根目录里查找残余文件。
+function historyRoot(persistence) {
   const configured = persistence.config?.root
-  if (typeof configured !== 'string' || configured.length === 0) return true
+  if (typeof configured !== 'string' || configured.length === 0) return undefined
   // 相对路径在 DSH 启动时已经解析过，进程的当前目录此后可能改变。
   const root = isAbsolute(configured) ? configured : persistence.root
   if (typeof root !== 'string' || !isAbsolute(root)) {
-    opLog(`无法定位会话残余目录 ${sessionId}`)
-    return false
+    throw new Error('无法定位会话存储目录')
   }
-  return eraseSessionDirs(root, sessionId)
+  return root
 }
 
-async function erasePayload(ctx, sessionId, directory) {
-  const results = await Promise.all([
-    eraseHistory(ctx.sessionPersistence, sessionId, directory),
+async function isDirectory(path) {
+  try {
+    return (await lstat(path)).isDirectory()
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+async function readEntries(path) {
+  try {
+    return await readdir(path, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+async function listDirectories(path) {
+  const entries = await readEntries(path)
+  return entries.filter(entry => entry.isDirectory()).map(entry => entry.name)
+}
+
+async function* stagedSessions(root) {
+  if (root === undefined) return
+  for (const project of await listDirectories(root)) {
+    const staging = join(root, project, STAGING_DIR)
+    if (!await isDirectory(staging)) continue
+    for (const id of await listDirectories(staging)) {
+      if (SESSION_ID_RE.test(id)) yield [id, join(staging, id)]
+    }
+  }
+}
+
+async function stageHistory(ctx, sessionId, directory, stored) {
+  const writer = await claimHistory(ctx.sessionPersistence, sessionId)
+  const staging = join(dirname(directory), STAGING_DIR)
+  const staged = join(staging, sessionId)
+  let closed
+  try {
+    const current = await ctx.sessionPersistence.stat(sessionId)
+    if (jsonlSessionDir(current, sessionId) !== directory ||
+        current.header.createdAt !== stored.header.createdAt || stillLoaded(ctx, sessionId)) {
+      throw sessionChanging()
+    }
+    await mkdir(staging, { recursive: true, mode: 0o700 })
+    if (!await isDirectory(staging)) throw new Error('无法使用会话清理目录')
+    await rm(staged, { recursive: true, force: true })
+    // Move the directory with its write lock intact. DSH looks for logs
+    // two levels below its root, so a staged log must be a level deeper.
+    await rename(directory, staged)
+  } finally {
+    closed = await cleanupStep(`释放写入句柄失败 ${sessionId}`, () => writer.close())
+  }
+  return closed ? staged : undefined
+}
+
+async function assertHistoryGone(ctx, sessionId) {
+  if (await ctx.sessionPersistence.stat(sessionId) != null || stillLoaded(ctx, sessionId)) {
+    throw new Error('宿主仍能读取会话')
+  }
+}
+
+async function eraseResidualHistory(root, sessionId) {
+  for (const project of await listDirectories(root)) {
+    const path = join(root, project, sessionId)
+    if (!await isDirectory(path)) continue
+    const entries = await readEntries(path)
+    // A missing stat alone is insufficient to delete a log or an active
+    // writer's directory. Leave unrecognized history in place.
+    if (entries.some(entry => entry.name === 'session.lock' || entry.name.includes('.jsonl'))) {
+      throw new Error('会话目录中仍有未核实的记录或写入锁')
+    }
+    for (const entry of entries) await rm(join(path, entry.name), { recursive: true, force: true })
+    await rmdir(path).catch(error => {
+      if (error?.code !== 'ENOENT') throw error
+    })
+  }
+}
+
+async function finishDeletion(ctx, sessionId, stagedPaths, residualRoot) {
+  const gone = await cleanupStep(`删除后复查失败 ${sessionId}`, () => assertHistoryGone(ctx, sessionId))
+  if (!gone) return false
+
+  if (residualRoot && !await cleanupStep(`清理残余目录失败 ${sessionId}`, () =>
+    eraseResidualHistory(residualRoot, sessionId))) return false
+
+  const sideData = await Promise.all([
     eraseProjcache(ctx.storageDomain, sessionId),
     eraseSessionDirs(spillBase(), spillSessionDirName(sessionId), SPILL_ROOT_RE),
   ])
-  if (!results.every(Boolean)) return false
-  return cleanupStep(`删除后复查失败 ${sessionId}`, async () => {
-    if (await ctx.sessionPersistence.stat(sessionId) != null || stillLoaded(ctx, sessionId)) {
-      throw new Error('宿主仍能读取会话')
-    }
+  if (!sideData.every(Boolean)) return false
+
+  // Keep the staged directory as a record of the confirmed deletion until
+  // cleanup and registry updates succeed, so the next launch can resume them.
+  const forgotten = await cleanupStep(`复查或更新工作区失败 ${sessionId}`, async () => {
+    await assertHistoryGone(ctx, sessionId)
+    await forgetInRegistry(ctx, sessionId)
   })
+  if (!forgotten) return false
+  if (residualRoot && !await eraseSessionDirs(residualRoot, `.dsh-deleting-${sessionId}`)) return false
+  const results = await Promise.all(stagedPaths.map(path =>
+    cleanupStep(`清理暂存会话失败 ${sessionId}`, () => rm(path, { recursive: true, force: true }))))
+  return results.every(Boolean)
+}
+
+async function removeUnloadedSession(ctx, sessionId, directory, stored) {
+  if (directory !== undefined) {
+    const staged = await stageHistory(ctx, sessionId, directory, stored)
+    if (staged === undefined) return false
+    return finishDeletion(ctx, sessionId, [staged])
+  }
+  const root = historyRoot(ctx.sessionPersistence)
+  const paths = []
+  for await (const [id, path] of stagedSessions(root)) {
+    if (id === sessionId) paths.push(path)
+  }
+  return finishDeletion(ctx, sessionId, paths, paths.length === 0 ? root : undefined)
+}
+
+async function recoverInterruptedDeletes(ctx) {
+  for await (const [sessionId, path] of stagedSessions(historyRoot(ctx.sessionPersistence))) {
+    await cleanupStep(`恢复删除失败 ${sessionId}`, async () => {
+      const done = ctx.sessionDeleteWebAgents.beginDelete(sessionId)
+      try {
+        if (await finishDeletion(ctx, sessionId, [path])) opLog(`已完成中断的删除 ${sessionId}`)
+      } finally {
+        done()
+      }
+    })
+  }
 }
 
 /** 读一个 JSON 请求体；空体当 {}。 */
@@ -186,7 +325,11 @@ function sendJson(res, status, body) {
 }
 
 export function apply(ctx) {
-  const deleting = new Set()
+  ctx.provide('sessionDeleteWebAgents', createWebAgentAccess(ctx.agents))
+  ctx.inject(['webServer', 'connection', 'sessions', 'sessionPersistence', 'storageDomain', 'workspaceRegistry'], registerDeleteRoute)
+}
+
+function registerDeleteRoute(ctx) {
   const route = {
     kind: 'exact',
     path: DELETE_ROUTE,
@@ -202,10 +345,7 @@ export function apply(ctx) {
         if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
           return sendJson(res, 400, { ok: false, error: '非法的 sessionId' })
         }
-        if (deleting.has(sessionId)) {
-          return sendJson(res, 409, { ok: false, error: '会话正在删除，请稍后重试' })
-        }
-        deleting.add(sessionId)
+        const endDelete = ctx.sessionDeleteWebAgents.beginDelete(sessionId)
         try {
           assertIdle(ctx.agents, sessionId)
           const live = ctx.sessions.get(sessionId)
@@ -222,30 +362,31 @@ export function apply(ctx) {
           }
           const activity = await ctx.waterfall('workspace/session-activity', { sessionId }, () => Promise.resolve([]))
           assertIdle(ctx.agents, sessionId, activity)
-          if (!unloadLiveSession(ctx, sessionId, live)) {
-            opLog(`会话卸载失败 ${sessionId}`)
-            return sendJson(res, 409, { ok: false, error: '会话仍留在内存里，请重启 DSH 后重试' })
+          if (!await unloadLiveSession(ctx, sessionId, live)) {
+            opLog(`会话仍由其他组件持有 ${sessionId}`)
+            return sendJson(res, 409, { ok: false, code: 'session-held', error: '会话仍由其他组件持有，释放后可以重试' })
           }
-          const registryClean = await cleanupStep(`清理工作区登记失败 ${sessionId}`, () =>
-            forgetInRegistry(ctx.workspaceRegistry, sessionId))
-          const complete = registryClean && !stillLoaded(ctx, sessionId) &&
-            await erasePayload(ctx, sessionId, directory)
+          const complete = await removeUnloadedSession(ctx, sessionId, directory, stored)
           opLog(`${complete ? '已删除' : '未完整删除'} ${sessionId}`)
           if (!complete) return sendJson(res, 207, { ok: false, partial: true })
           sendJson(res, 200, { ok: true })
         } finally {
-          deleting.delete(sessionId)
+          endDelete()
         }
       } catch (error) {
         const status = Number(error?.statusCode) || 500
         const message = error instanceof Error ? error.message : String(error)
         opLog(`ERROR ${req.method} ${req.url} → ${status}: ${message}`)
-        sendJson(res, status, { ok: false, error: message })
+        sendJson(res, status, { ok: false, code: error?.statusCode ? error.code : undefined, error: message })
       }
     },
   }
 
   ctx.effect(() => ctx.webServer.register(route), 'session-delete-lite: route')
+  ctx.effect(() => {
+    const recovery = cleanupStep('恢复中断的会话删除失败', () => recoverInterruptedDeletes(ctx))
+    return async () => { await recovery }
+  }, 'session-delete-lite: recover')
   console.log(`[session-delete-lite] 删除接口已注册 ${DELETE_ROUTE}`)
   opLog('plugin activated (session-delete-lite)')
 }

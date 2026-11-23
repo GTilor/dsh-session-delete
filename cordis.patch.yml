@@ -1,4 +1,12 @@
-# 只插入本插件自身，不改写任何官方装载行。
+# 仅为桌面和 Web 的会话控制器保留其正常创建、恢复时返回的关闭句柄。
+- id: session-controller
+  name: '@deepseek-ai/dsh-api-session-controller'
+  isolate:
+    agents: session-delete-web
 - insert:
+    - id: session-delete-web-agents
+      name: dsh-session-delete-lite/web-agents
+      isolate:
+        agents: session-delete-web
     - id: session-delete-lite
       name: dsh-session-delete-lite

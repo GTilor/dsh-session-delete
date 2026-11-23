@@ -1,9 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
-  <g stroke="#5B6572" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M11 12.6h14"/>
-    <path d="M14.8 12.6v-1.7c0-.7.6-1.2 1.2-1.2h4c.7 0 1.2.6 1.2 1.2v1.7"/>
-    <path d="M12.9 12.6l.8 11.4c.1.8.7 1.4 1.5 1.4h5.6c.8 0 1.4-.6 1.5-1.4l.8-11.4"/>
-    <path d="M16.6 16.4v5.4"/>
-    <path d="M19.4 16.4v5.4"/>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .dsh-sd-icon-tile { fill: #34415b; }
+      .dsh-sd-icon-glyph { stroke: #7aaaff; }
+    }
+  </style>
+  <rect class="dsh-sd-icon-tile" x="2" y="2" width="32" height="32" rx="10" fill="#e4edfd"/>
+  <g class="dsh-sd-icon-glyph" stroke="#4868b2" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 13h16m-11 0v-2c0-.8.7-1.5 1.5-1.5h3c.8 0 1.5.7 1.5 1.5v2"/>
+    <path d="m12 13 .9 11c.1 1.1.9 1.9 2 1.9h6.2c1.1 0 1.9-.8 2-1.9l.9-11"/>
+    <path d="M16.3 16.7v5.2m3.4-5.2v5.2"/>
   </g>
 </svg>
