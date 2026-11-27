@@ -6,13 +6,31 @@
 
 ## 安装
 
-在 DSH 打开 **插件 → 添加插件**，粘贴下面的地址。安装并启用后重启 DSH。
+### npm（推荐）
+
+在 DSH 打开 **插件 → 添加插件**，粘贴包名：
+
+```text
+dsh-session-delete-lite
+```
+
+也可以在退出桌面版后用命令行安装。用 Web 版时，把 `desktop` 换成 `web`。
+
+```bash
+dsh plugin --profile desktop add dsh-session-delete-lite
+```
+
+需要固定版本时，用 `dsh-session-delete-lite@1.0.2`。
+
+### GitHub
+
+也可以用 GitHub 上的 tag 安装。在 DSH 打开 **插件 → 添加插件**，粘贴：
 
 ```text
 github:GTilor/dsh-session-delete#v1.0.2
 ```
 
-也可以在退出桌面版后用命令行安装。用 Web 版时，把 `desktop` 换成 `web`。
+或用命令行：
 
 ```bash
 dsh plugin --profile desktop add github:GTilor/dsh-session-delete#v1.0.2

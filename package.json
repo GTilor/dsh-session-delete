@@ -4,7 +4,8 @@
   "description": "极简 DeepSeek Harness 插件，只提供侧栏会话删除功能。 A minimal DeepSeek Harness plugin that only adds a Delete session action to the sidebar.",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "npm test"
   },
   "license": "MIT",
   "author": {
@@ -45,7 +46,8 @@
     "dsh": "0.2.2-rc.5 || ^0.2.3-alpha.2"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "dsh": {
     "bundle": {

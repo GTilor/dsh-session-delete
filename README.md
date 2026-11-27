@@ -6,19 +6,37 @@ A minimal DeepSeek Harness (DSH) plugin that only adds a **Delete session** acti
 
 ## Install
 
-In DSH, open **Plugins → Add plugin** and paste the address below. Install and enable the plugin, then restart DSH.
+### npm (recommended)
+
+In DSH, open **Plugins → Add plugin** and paste the package name:
 
 ```text
-github:GTilor/dsh-session-delete#v1.0.2
+dsh-session-delete-lite
 ```
 
 For CLI installation, use the command below after quitting the desktop app. Change `desktop` to `web` if you use the Web profile.
 
 ```bash
+dsh plugin --profile desktop add dsh-session-delete-lite
+```
+
+To pin a version, use `dsh-session-delete-lite@1.0.2`.
+
+### GitHub
+
+You can also install from the tagged source. In DSH, open **Plugins → Add plugin** and paste:
+
+```text
+github:GTilor/dsh-session-delete#v1.0.2
+```
+
+Or from the CLI:
+
+```bash
 dsh plugin --profile desktop add github:GTilor/dsh-session-delete#v1.0.2
 ```
 
-You can also download the installer and enter its local path in **Add plugin**. [Download the v1.0.2 installer](https://github.com/GTilor/dsh-session-delete/releases/download/v1.0.2/dsh-session-delete-lite-1.0.2.tgz)
+You can download the installer and enter its local path in **Add plugin**. [Download the v1.0.2 installer](https://github.com/GTilor/dsh-session-delete/releases/download/v1.0.2/dsh-session-delete-lite-1.0.2.tgz)
 
 ## Demo
 
